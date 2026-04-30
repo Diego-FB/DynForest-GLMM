@@ -44,9 +44,10 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
     family <- X$model[[i]]$family
     if (is.null(family)) family <- "gaussian"
     
-
+    if (!family %in% c("gaussian", "binomial")) {
+      stop("Only family = 'gaussian' and family = 'binomial' are currently implemented.")
+    }
       
-
       if (family == "gaussian") {
         
         # Mixed model with initial values for parameters ?
@@ -100,27 +101,105 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         }
       }
       
+    
+    if (family == "binomial") {
+  
+  fixed_formula <- X$model[[i]]$fixed
+  random_formula <- X$model[[i]]$random
+  
+  random_rhs <- paste(deparse(random_formula[[2]]), collapse = "")
+  
+  glmm_formula <- as.formula(
+    paste(
+      deparse(fixed_formula),
+      "+ (",
+      random_rhs,
+      "| id)"
+    )
+  )
+  
+  model_output <- tryCatch(
+    suppressWarnings(
+      glmmTMB::glmmTMB(
+        formula = glmm_formula,
+        data = data_model,
+        family = stats::binomial()
+      )
+    ),
+    error = function(e){
+      return(NULL)
+    }
+  )
+}
+    
 
     if (is.null(model_output)){ # hlme error
       conv_issue <- c(conv_issue, colnames_X_i)
       next()
     }
 
-    if (model_output$gconv[1]>1e-04 | model_output$gconv[2]>1e-04){ # convergence issue
-      conv_issue <- c(conv_issue, colnames_X_i)
-      next()
+    if (family == "gaussian") {
+      if (model_output$gconv[1] > 1e-04 | model_output$gconv[2] > 1e-04) {
+        conv_issue <- c(conv_issue, colnames_X_i)
+        next()
+      }
+    }
+    
+    if (family == "binomial") {
+      
+      pdHess <- tryCatch(
+        model_output$sdr$pdHess,
+        error = function(e) FALSE
+      )
+      
+      if (is.null(pdHess) || !isTRUE(pdHess)) {
+        conv_issue <- c(conv_issue, colnames_X_i)
+        next()
+      }
     }
 
-    init[[colnames_X_i]] <- model_output$best
-
-    model_param[[i]] <- list(beta = model_output$best[(model_output$N[1]+1):model_output$N[2]],
-                             varcov = model_output$best[(model_output$N[1]+model_output$N[2]+1):
-                                                          (model_output$N[1]+model_output$N[2]+model_output$N[3])],
-                             stderr = tail(model_output$best, n = 1),
-                             idea0 = model_output$idea0)
-
-    # Random-effect dataframe with NA for subjects where RE cannot be computed
-    RE <- merge(unique(Y$id), model_output$predRE, all.x = T, by.x = "x", by.y = "id")[,-1]
+    if (family == "gaussian") {
+      
+      init[[colnames_X_i]] <- model_output$best
+      
+      model_param[[i]] <- list(
+        family = "gaussian",
+        beta = model_output$best[(model_output$N[1]+1):model_output$N[2]],
+        varcov = model_output$best[(model_output$N[1]+model_output$N[2]+1):
+                                     (model_output$N[1]+model_output$N[2]+model_output$N[3])],
+        stderr = tail(model_output$best, n = 1),
+        idea0 = model_output$idea0
+      )
+      
+      RE <- merge(
+        unique(Y$id),
+        model_output$predRE,
+        all.x = TRUE,
+        by.x = "x",
+        by.y = "id"
+      )[,-1, drop = FALSE]
+    }
+    
+    if (family == "binomial") {
+      
+      model_param[[i]] <- list(
+        family = "binomial",
+        fixed = glmmTMB::fixef(model_output)$cond,
+        varcov = as.matrix(glmmTMB::VarCorr(model_output)$cond$id),
+        formula = glmm_formula
+      )
+      
+      RE_raw <- glmmTMB::ranef(model_output)$cond$id
+      RE_raw$id <- as.numeric(rownames(RE_raw))
+      
+      RE <- merge(
+        unique(Y$id),
+        RE_raw,
+        all.x = TRUE,
+        by.x = "x",
+        by.y = "id"
+      )[,-1, drop = FALSE]
+    }
 
     ###########################
 
@@ -227,3 +306,15 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
               model_param = list(model_param[[var_split]]), conv_issue = conv_issue,
               init = init, Pure = Pure))
 }
+
+
+
+
+
+
+
+
+
+
+
+
