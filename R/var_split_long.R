@@ -40,40 +40,66 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
     if (is.null(init[[colnames_X_i]][[1]])){
       init[[colnames_X_i]][[1]] <- NA
     }
+    
+    family <- X$model[[i]]$family
+    if (is.null(family)) family <- "gaussian"
+    
 
-    # Mixed model with initial values for parameters ?
-    if (!is.na(init[[colnames_X_i]][[1]])){
+      
 
-      model_output <- tryCatch(
-        hlme(fixed = X$model[[i]]$fixed,
-             random = X$model[[i]]$random,
-             subject = "id", data = data_model,
-             B = init[[colnames_X_i]],
-             maxiter = 100,
-             verbose = FALSE),
-        error = function(e){ return(NULL) })
-
-      if (is.null(model_output)){ # can occurred with Cholesky matrix inversion
-
-        model_output <- tryCatch(hlme(fixed = X$model[[i]]$fixed,
-                                      random = X$model[[i]]$random,
-                                      subject = "id", data = data_model,
-                                      maxiter = 100,
-                                      verbose = FALSE),
-                                 error = function(e){ return(NULL) })
-
+      if (family == "gaussian") {
+        
+        # Mixed model with initial values for parameters ?
+        if (!is.na(init[[colnames_X_i]][[1]])){
+          model_output <- tryCatch(
+            hlme(
+              fixed = X$model[[i]]$fixed,
+              random = X$model[[i]]$random,
+              subject = "id",
+              data = data_model,
+              B = init[[colnames_X_i]],
+              maxiter = 100,
+              verbose = FALSE
+            ),
+            error = function(e){
+              return(NULL)
+            }
+          )
+          
+          if (is.null(model_output)){
+            model_output <- tryCatch(
+              hlme(
+                fixed = X$model[[i]]$fixed,
+                random = X$model[[i]]$random,
+                subject = "id",
+                data = data_model,
+                maxiter = 100,
+                verbose = FALSE
+              ),
+              error = function(e){
+                return(NULL)
+              }
+            )
+          }
+          
+        } else {
+          
+          model_output <- tryCatch(
+            hlme(
+              fixed = X$model[[i]]$fixed,
+              random = X$model[[i]]$random,
+              subject = "id",
+              data = data_model,
+              maxiter = 100,
+              verbose = FALSE
+            ),
+            error = function(e){
+              return(NULL)
+            }
+          )
+        }
       }
-
-    }else{
-
-      model_output <- tryCatch(hlme(fixed = X$model[[i]]$fixed,
-                                    random = X$model[[i]]$random,
-                                    subject = "id", data = data_model,
-                                    maxiter = 100,
-                                    verbose = FALSE),
-                               error = function(e){ return(NULL) })
-
-    }
+      
 
     if (is.null(model_output)){ # hlme error
       conv_issue <- c(conv_issue, colnames_X_i)
