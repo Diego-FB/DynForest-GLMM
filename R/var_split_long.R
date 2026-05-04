@@ -118,12 +118,28 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
     )
   )
   
+  
+  start_glmmTMB <- NULL
+  
+  if (is.list(init[[colnames_X_i]]) &&
+      !is.null(init[[colnames_X_i]]$beta) &&
+      !is.null(init[[colnames_X_i]]$theta)) {
+    
+    start_glmmTMB <- list(
+      beta = init[[colnames_X_i]]$beta,
+      theta = init[[colnames_X_i]]$theta
+    )
+  }
+  
+  
+  
   model_output <- tryCatch(
     suppressWarnings(
       glmmTMB::glmmTMB(
         formula = glmm_formula,
         data = data_model,
-        family = stats::binomial()
+        family = stats::binomial(),
+        start = start_glmmTMB
       )
     ),
     error = function(e){
@@ -181,6 +197,12 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
     }
     
     if (family == "binomial") {
+      
+      init[[colnames_X_i]] <- list(
+        beta = glmmTMB::getME(model_output, "beta"),
+        theta = glmmTMB::getME(model_output, "theta")
+      )
+      
       
       model_param[[i]] <- list(
         family = "binomial",
