@@ -208,6 +208,8 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         family = "binomial",
         fixed = glmmTMB::fixef(model_output)$cond,
         varcov = as.matrix(glmmTMB::VarCorr(model_output)$cond$id),
+        fixed_formula = X$model[[i]]$fixed,
+        random_formula = X$model[[i]]$random,
         formula = glmm_formula
       )
       
