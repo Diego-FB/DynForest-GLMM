@@ -163,12 +163,32 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
     
     if (family == "binomial") {
       
+      conv_ok <- tryCatch(
+        model_output$fit$convergence == 0,
+        error = function(e) FALSE
+      )
+      
       pdHess <- tryCatch(
         model_output$sdr$pdHess,
         error = function(e) FALSE
       )
       
-      if (is.null(pdHess) || !isTRUE(pdHess)) {
+      beta_ok <- tryCatch(
+        all(is.finite(glmmTMB::fixef(model_output)$cond)),
+        error = function(e) FALSE
+      )
+      
+      theta_ok <- tryCatch(
+        all(is.finite(glmmTMB::getME(model_output, "theta"))),
+        error = function(e) FALSE
+      )
+      
+      re_ok <- tryCatch({
+        re_tmp <- glmmTMB::ranef(model_output)$cond$id
+        all(is.finite(as.matrix(re_tmp)))
+      }, error = function(e) FALSE)
+      
+      if (!isTRUE(conv_ok) || !isTRUE(beta_ok) || !isTRUE(theta_ok) || !isTRUE(re_ok)) {
         conv_issue <- c(conv_issue, colnames_X_i)
         next()
       }
@@ -210,7 +230,9 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         varcov = as.matrix(glmmTMB::VarCorr(model_output)$cond$id),
         fixed_formula = X$model[[i]]$fixed,
         random_formula = X$model[[i]]$random,
-        formula = glmm_formula
+        formula = glmm_formula,
+        pdHess = pdHess,
+        conv_ok = conv_ok
       )
       
       RE_raw <- glmmTMB::ranef(model_output)$cond$id
