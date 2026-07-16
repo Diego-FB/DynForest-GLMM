@@ -73,6 +73,7 @@ DynTree_surv <- function(Y, Longitudinal = NULL, Numeric = NULL, Factor = NULL,
 
   # Initialize mixed models lists
   model_init <- model_param <- conv_issue <- list()
+  conv_issue_detail <- list()
 
   for (p in seq_along(unique(Y_boot$id)/2-1)){
 
@@ -166,6 +167,7 @@ DynTree_surv <- function(Y, Longitudinal = NULL, Numeric = NULL, Factor = NULL,
                                         stringsAsFactors = FALSE))
 
             conv_issue[[current_node_chr]] <- leaf_split_Longitudinal$conv_issue
+            conv_issue_detail[[current_node_chr]] <- leaf_split_Longitudinal$conv_issue_detail
           }
         }
 
@@ -318,7 +320,8 @@ DynTree_surv <- function(Y, Longitudinal = NULL, Numeric = NULL, Factor = NULL,
   }
 
   return(list(leaves = id_nodes, idY = Y_boot$id, Ytype = Y_boot$type, V_split = V_split,
-              hist_nodes = hist_nodes, Y_pred = Y_pred, Y = Y, boot = id_boot, conv_issue = conv_issue,
+              hist_nodes = hist_nodes, Y_pred = Y_pred, Y = Y, boot = id_boot, conv_issue = conv_issue, 
+              conv_issue_detail = conv_issue_detail,
               model_param = model_param))
 
 }

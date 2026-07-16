@@ -23,7 +23,8 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
   model_param <- list()
   threshold_var <- var_sum <- rep(NA, X_ncol)
   conv_issue <- NULL
-
+  conv_issue_detail <- list()
+  
   for (i in 1:X_ncol){
 
     colnames_X_i <- colnames(X$X)[i]
@@ -44,8 +45,9 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
     family <- X$model[[i]]$family
     if (is.null(family)) family <- "gaussian"
     
-    if (!family %in% c("gaussian", "binomial")) {
-      stop("Only family = 'gaussian' and family = 'binomial' are currently implemented.")
+    
+    if (!family %in% c("gaussian", "binomial", "poisson", "negbin")) {
+      stop("Only family = 'gaussian', 'binomial', 'poisson' and 'negbin' are currently implemented.")
     }
       
       if (family == "gaussian") {
@@ -102,10 +104,13 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
       }
       
     
-    if (family == "binomial") {
+    if (family %in% c("binomial", "poisson", "negbin")) {
   
   fixed_formula <- X$model[[i]]$fixed
   random_formula <- X$model[[i]]$random
+  
+  ziformula <- X$model[[i]]$ziformula
+  if (is.null(ziformula)) ziformula <- ~0
   
   random_rhs <- paste(deparse(random_formula[[2]]), collapse = "")
   
@@ -129,28 +134,98 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
       beta = init[[colnames_X_i]]$beta,
       theta = init[[colnames_X_i]]$theta
     )
+    
+    if (!is.null(init[[colnames_X_i]]$betadisp)) {
+      start_glmmTMB$betadisp <- init[[colnames_X_i]]$betadisp
+    }
   }
   
+  family_glmmTMB <- switch(
+    family,
+    binomial = stats::binomial(),
+    poisson = stats::poisson(),
+    negbin = glmmTMB::nbinom2()
+  )
   
+  fit_error_msg <- NA_character_
+  used_cold_retry <- FALSE
   
   model_output <- tryCatch(
     suppressWarnings(
       glmmTMB::glmmTMB(
         formula = glmm_formula,
         data = data_model,
-        family = stats::binomial(),
+        family = family_glmmTMB,
+        ziformula = ziformula,
         start = start_glmmTMB
       )
     ),
     error = function(e){
+      fit_error_msg <<- conditionMessage(e)
       return(NULL)
     }
   )
-}
+  
+  # Fallback: si había warm start y el ajuste falló (o no pasa los checks), reintenta en frío
+  needs_cold_retry <- is.null(model_output)
+  
+  if (!needs_cold_retry) {
+    conv_ok_tmp <- tryCatch(model_output$fit$convergence == 0, error = function(e) FALSE)
+    beta_ok_tmp <- tryCatch(all(is.finite(glmmTMB::fixef(model_output)$cond)), error = function(e) FALSE)
+    theta_ok_tmp <- tryCatch(all(is.finite(glmmTMB::getME(model_output, "theta"))), error = function(e) FALSE)
+    re_ok_tmp <- tryCatch({
+      re_tmp <- glmmTMB::ranef(model_output)$cond$id
+      all(is.finite(as.matrix(re_tmp)))
+    }, error = function(e) FALSE)
+    
+    if (!isTRUE(conv_ok_tmp) || !isTRUE(beta_ok_tmp) || !isTRUE(theta_ok_tmp) || !isTRUE(re_ok_tmp)) {
+      needs_cold_retry <- TRUE
+    }
+  }
+  
+  if (needs_cold_retry && !is.null(start_glmmTMB)) {
+    
+    model_output_cold <- tryCatch(
+      suppressWarnings(
+        glmmTMB::glmmTMB(
+          formula = glmm_formula,
+          data = data_model,
+          family = family_glmmTMB,
+          ziformula = ziformula,
+          start = NULL
+        )
+      ),
+      error = function(e){
+        fit_error_msg <<- conditionMessage(e)
+        return(NULL)
+      }
+    )
+    
+    if (!is.null(model_output_cold)) {
+      model_output <- model_output_cold
+      used_cold_retry <- TRUE
+    }
+  }
+    }
     
 
-    if (is.null(model_output)){ # hlme error
+    if (is.null(model_output)) {
       conv_issue <- c(conv_issue, colnames_X_i)
+      
+      conv_issue_detail[[colnames_X_i]] <- list(
+        variable = colnames_X_i,
+        family = family,
+        error_msg = fit_error_msg,
+        conv_ok = FALSE,
+        pdHess = NA,
+        beta_ok = FALSE,
+        theta_ok = FALSE,
+        re_ok = FALSE,
+        theta_nb = NA_real_,
+        used_cold_retry = used_cold_retry   
+      
+      )
+      
       next()
     }
 
@@ -161,7 +236,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
       }
     }
     
-    if (family == "binomial") {
+    if (family %in% c("binomial", "poisson", "negbin")) {
       
       conv_ok <- tryCatch(
         model_output$fit$convergence == 0,
@@ -189,7 +264,36 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
       }, error = function(e) FALSE)
       
       if (!isTRUE(conv_ok) || !isTRUE(beta_ok) || !isTRUE(theta_ok) || !isTRUE(re_ok)) {
+        
         conv_issue <- c(conv_issue, colnames_X_i)
+        
+        
+        conv_issue_detail[[colnames_X_i]] <- list(
+          variable = colnames_X_i,
+          family = family,
+          error_msg = NA_character_,
+          conv_ok = conv_ok,
+          pdHess = pdHess,
+          beta_ok = beta_ok,
+          theta_ok = theta_ok,
+          re_ok = re_ok,
+          theta_nb = if (family == "negbin") {
+            tryCatch(stats::sigma(model_output), error = function(e) NA_real_)
+          } else {
+            NA_real_
+          },
+          used_cold_retry = used_cold_retry,
+          theta_se_log = if (family == "negbin") {
+            tryCatch({
+              summ <- summary(model_output$sdr)
+              idx <- which(rownames(summ) == "betadisp")
+              if (length(idx) == 0) NA_real_ else summ[idx, "Std. Error"]
+            }, error = function(e) NA_real_)
+          } else {
+            NA_real_
+          }
+        )
+        
         next()
       }
     }
@@ -216,23 +320,70 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
       )[,-1, drop = FALSE]
     }
     
-    if (family == "binomial") {
+    if (family %in% c("binomial", "poisson", "negbin")) {
       
-      init[[colnames_X_i]] <- list(
-        beta = glmmTMB::getME(model_output, "beta"),
-        theta = glmmTMB::getME(model_output, "theta")
+      pl <- tryCatch(
+        model_output$obj$env$parList(),
+        error = function(e) NULL
       )
       
+      init[[colnames_X_i]] <- list(
+        beta = tryCatch(glmmTMB::getME(model_output, "beta"), error = function(e) NULL),
+        theta = tryCatch(glmmTMB::getME(model_output, "theta"), error = function(e) NULL),
+        betadisp = if (!is.null(pl) && "betadisp" %in% names(pl)) pl$betadisp else NULL
+      )
       
+      theta_nb <- NA_real_
+      
+      if (family == "negbin") {
+        theta_nb <- tryCatch(
+          stats::sigma(model_output),
+          error = function(e) NA_real_
+        )
+      }
+      
+      poisson_diag <- list(theta_se_log = NA_real_, p_value_poisson = NA_real_, prefers_poisson = NA)
+      
+      
+      
+      if (family == "negbin") {
+        theta_se_log <- tryCatch({
+          summ <- summary(model_output$sdr)
+          idx <- which(rownames(summ) == "betadisp")
+          if (length(idx) == 0) NA_real_ else summ[idx, "Std. Error"]
+        }, error = function(e) {
+          NA_real_
+        })
+        
+        
+        
+        if (is.finite(theta_se_log) && theta_se_log > 0) {
+          p_val <- stats::pnorm(-1 / theta_se_log)
+          poisson_diag <- list(
+            theta_se_log = theta_se_log,
+            p_value_poisson = p_val,
+            prefers_poisson = p_val > 0.05
+          )
+        }
+      }
       model_param[[i]] <- list(
-        family = "binomial",
+        family = family,
         fixed = glmmTMB::fixef(model_output)$cond,
         varcov = as.matrix(glmmTMB::VarCorr(model_output)$cond$id),
         fixed_formula = X$model[[i]]$fixed,
         random_formula = X$model[[i]]$random,
         formula = glmm_formula,
+        ziformula = ziformula,
+        theta_nb = theta_nb,
         pdHess = pdHess,
-        conv_ok = conv_ok
+        conv_ok = conv_ok,
+        used_cold_retry = used_cold_retry,
+        gradient_max = tryCatch(
+          max(abs(model_output$sdr$gradient.fixed), na.rm = TRUE),
+          error = function(e) NA_real_
+        ),
+        poisson_diag = poisson_diag
+        
       )
       
       RE_raw <- glmmTMB::ranef(model_output)$cond$id
@@ -349,7 +500,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
 
   return(list(split = split_var[[var_split]], impur = min(impur_var), impur_list = all_imp_var[[var_split]],
               variable = var_split, variable_summary = var_sum[var_split], threshold = threshold_var[var_split],
-              model_param = list(model_param[[var_split]]), conv_issue = conv_issue,
+              model_param = list(model_param[[var_split]]), conv_issue = conv_issue,   conv_issue_detail = conv_issue_detail,
               init = init, Pure = Pure))
 }
 

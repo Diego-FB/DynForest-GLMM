@@ -63,7 +63,7 @@ predRE <- function(model, formula, data){
     return(list(bi = bi))
   }
   
-  if (family == "binomial") {
+  if (family %in% c("binomial", "poisson", "negbin")) {
     
     dataNA <- na.omit(data)
     
@@ -110,12 +110,33 @@ predRE <- function(model, formula, data){
         
         eta <- as.vector(X_i %*% beta + Z_i %*% b)
         
-        loglik <- sum(dbinom(
-          x = y_i,
-          size = 1,
-          prob = plogis(eta),
-          log = TRUE
-        ))
+        if (family == "binomial") {
+          loglik <- sum(stats::dbinom(
+            x = y_i,
+            size = 1,
+            prob = stats::plogis(eta),
+            log = TRUE
+          ))
+        }
+        
+        if (family == "poisson") {
+          loglik <- sum(stats::dpois(
+            x = y_i,
+            lambda = exp(eta),
+            log = TRUE
+          ))
+        }
+        
+        if (family == "negbin") {
+          theta_nb <- model$theta_nb
+          
+          loglik <- sum(stats::dnbinom(
+            x = y_i,
+            size = theta_nb,
+            mu = exp(eta),
+            log = TRUE
+          ))
+        }
         
         prior <- -0.5 * as.numeric(t(b) %*% Sigma_inv %*% b)
         

@@ -36,6 +36,20 @@ rf_shape_para <- function(Longitudinal = NULL, Numeric = NULL, Factor = NULL,
   if (ncores>1){
 
     cl <- parallel::makeCluster(ncores)
+    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+    
+    if (!is.na(dev_path) && nzchar(dev_path)) {
+      parallel::clusterExport(
+        cl,
+        varlist = "dev_path",
+        envir = environment()
+      )
+      
+      parallel::clusterEvalQ(cl, {
+        pkgload::load_all(dev_path, reset = TRUE)
+        NULL
+      })
+    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()
@@ -43,7 +57,8 @@ rf_shape_para <- function(Longitudinal = NULL, Numeric = NULL, Factor = NULL,
     dir <- sapply(1:length(pck),function(k){gsub(pck[k],"",dir0[k])})
     parallel::clusterExport(cl,list("pck","dir"),envir=environment())
     parallel::clusterEvalQ(cl,sapply(1:length(pck),function(k){require(pck[k],lib.loc=dir[k],character.only=TRUE)}))
-
+    
+    
     if (Y$type=="surv"){
       trees <- pbsapply(1:ntree, FUN=function(i){
         DynTree_surv(Y = Y, Longitudinal = Longitudinal, Numeric = Numeric, Factor = Factor,

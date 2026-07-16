@@ -162,8 +162,8 @@ dynforest <- function(timeData = NULL, fixedData = NULL,
 
   if (!is.null(fixedData)){
 
-    fixedData <- fixedData[order(fixedData[,idVar]),]
-
+    fixedData <- fixedData[order(fixedData[,idVar]), , drop = FALSE]
+    
     var_fact <- sapply(subset(fixedData, select = -get(idVar)),
                        FUN = function(x) inherits(x, c("character","factor")))
 
