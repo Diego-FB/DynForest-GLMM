@@ -63,6 +63,12 @@ OOB.rfshape <- function(rf, Longitudinal = NULL, Numeric = NULL, Factor = NULL, 
     OOB_IBS <- sort(Y.surv$id[which(Y.surv$time.event>=IBS.min)])
 
     cl <- parallel::makeCluster(ncores)
+
+    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+    if (!is.na(dev_path) && nzchar(dev_path)) {
+      parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
+      parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
+    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()
@@ -165,6 +171,12 @@ OOB.rfshape <- function(rf, Longitudinal = NULL, Numeric = NULL, Factor = NULL, 
   if (Y$type=="numeric"){
 
     cl <- parallel::makeCluster(ncores)
+
+    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+    if (!is.na(dev_path) && nzchar(dev_path)) {
+      parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
+      parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
+    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()
@@ -234,6 +246,12 @@ OOB.rfshape <- function(rf, Longitudinal = NULL, Numeric = NULL, Factor = NULL, 
   if (Y$type=="factor"){
 
     cl <- parallel::makeCluster(ncores)
+
+    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+    if (!is.na(dev_path) && nzchar(dev_path)) {
+      parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
+      parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
+    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()

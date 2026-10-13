@@ -109,6 +109,12 @@ compute_vimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
   pbapply::pboptions(type="none")
 
   cl <- parallel::makeCluster(ncores)
+
+  dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+  if (!is.na(dev_path) && nzchar(dev_path)) {
+    parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
+    parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
+  }
   doParallel::registerDoParallel(cl)
 
   pck <- .packages()
@@ -145,6 +151,12 @@ compute_vimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
     Longitudinal.err <- matrix(NA, ntree, ncol(Longitudinal$X))
 
     cl <- parallel::makeCluster(ncores)
+
+    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+    if (!is.na(dev_path) && nzchar(dev_path)) {
+      parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
+      parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
+    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()
@@ -168,7 +180,7 @@ compute_vimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
 
       }
       Longitudinal.perm$X[,p] <- Longitudinal$X[,p]
-      res <- mean(Longitudinal.err[,p]- tree_oob_err)
+      res <- mean(Longitudinal.err[,p]- tree_oob_err, na.rm = TRUE)
     }
 
     parallel::stopCluster(cl)
@@ -181,6 +193,12 @@ compute_vimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
     Numeric.err <- matrix(NA, ntree, dim(Numeric$X)[2])
 
     cl <- parallel::makeCluster(ncores)
+
+    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+    if (!is.na(dev_path) && nzchar(dev_path)) {
+      parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
+      parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
+    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()
@@ -203,7 +221,7 @@ compute_vimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
 
       }
       Numeric.perm$X[,p] <- Numeric$X[,p]
-      res <- mean(Numeric.err[,p]- tree_oob_err)
+      res <- mean(Numeric.err[,p]- tree_oob_err, na.rm = TRUE)
     }
 
     parallel::stopCluster(cl)
@@ -214,6 +232,12 @@ compute_vimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
     Factor.err <- matrix(NA, ntree, dim(Factor$X)[2])
 
     cl <- parallel::makeCluster(ncores)
+
+    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
+    if (!is.na(dev_path) && nzchar(dev_path)) {
+      parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
+      parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
+    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()
@@ -237,7 +261,7 @@ compute_vimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
       }
 
       Factor.perm$X[,p] <- Factor$X[,p]
-      res <- mean(Factor.err[,p]- tree_oob_err)
+      res <- mean(Factor.err[,p]- tree_oob_err, na.rm = TRUE)
     }
 
     parallel::stopCluster(cl)
