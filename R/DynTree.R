@@ -19,7 +19,7 @@
 #' @noRd
 DynTree <- function(Y, Longitudinal = NULL, Numeric = NULL, Factor = NULL,
                     timeVar = NULL, mtry = 1, nsplit_option = "quantile",
-                    nodesize = 1, seed = 1234){
+                    nodesize = 1, seed = 1234, gradTol = NULL){
 
   Inputs <- c(Longitudinal$type, Numeric$type, Factor$type)
   type_pred <- unlist(sapply(Inputs, FUN = function(x) return(rep(get(x)$type, ncol(get(x)$X)))))
@@ -162,7 +162,8 @@ DynTree <- function(Y, Longitudinal = NULL, Numeric = NULL, Factor = NULL,
                                                     timeVar = timeVar,
                                                     nsplit_option = nsplit_option,
                                                     nodesize = nodesize,
-                                                    init = model_init[[current_node_chr]])
+                                                    init = model_init[[current_node_chr]],
+                                                    gradTol = gradTol)
 
           if (leaf_split_Longitudinal$Pure==FALSE){
             model_init[[current_node_chr]] <- leaf_split_Longitudinal$init # update initial values at current node

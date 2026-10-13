@@ -17,6 +17,12 @@
 #' @param ncores Number of cores used to grow trees in parallel. Default value is the number of cores of the computer-1.
 #' @param seed Seed to replicate results
 #' @param verbose A logical controlling the function progress. Default is \code{TRUE}
+#' @param gradTol Numeric. If not \code{NULL} (default), binomial/poisson longitudinal glmmTMB
+#' fits that fail the formal convergence check but have a maximum fixed-effect gradient below
+#' \code{gradTol}, a positive-definite Hessian, a non-collapsed random-effect variance
+#' (minimum standard deviation > 1e-4), and all other diagnostic checks passing, are accepted as
+#' converged and flagged with \code{used_grad_rescue = TRUE}. Never applied to \code{negbin} fits.
+#' Default is \code{NULL} (disabled).
 #'
 #' @import stringr
 #' @import foreach
@@ -118,7 +124,8 @@ dynforest <- function(timeData = NULL, fixedData = NULL,
                       nsplit_option = "quantile",
                       ncores = NULL,
                       seed = 1234,
-                      verbose = TRUE){
+                      verbose = TRUE,
+                      gradTol = NULL){
 
   debut <- Sys.time()
 
@@ -250,7 +257,8 @@ dynforest <- function(timeData = NULL, fixedData = NULL,
                        mtry = mtry, ntree = ntree, ncores = ncores,
                        nsplit_option = nsplit_option,
                        nodesize = nodesize, minsplit = minsplit,
-                       cause = cause, seed = seed, verbose = verbose)
+                       cause = cause, seed = seed, verbose = verbose,
+                       gradTol = gradTol)
 
   rf <- list(type=Y$type, rf=rf)
 

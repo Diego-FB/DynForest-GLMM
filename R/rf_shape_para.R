@@ -25,7 +25,7 @@
 rf_shape_para <- function(Longitudinal = NULL, Numeric = NULL, Factor = NULL,
                           timeVar = NULL, Y, mtry, ntree, ncores,
                           nsplit_option = "quantile", nodesize = 1, minsplit = 2, cause = 1,
-                          seed = 1234, verbose = TRUE){
+                          seed = 1234, verbose = TRUE, gradTol = NULL){
 
   if (!verbose){
     pbapply::pboptions(type="none")
@@ -64,14 +64,14 @@ rf_shape_para <- function(Longitudinal = NULL, Numeric = NULL, Factor = NULL,
         DynTree_surv(Y = Y, Longitudinal = Longitudinal, Numeric = Numeric, Factor = Factor,
                      timeVar = timeVar, mtry = mtry, nsplit_option = nsplit_option,
                      nodesize = nodesize, minsplit = minsplit, cause = cause,
-                     seed = seed*i)
+                     seed = seed*i, gradTol = gradTol)
       },cl=cl)
     }
     if (Y$type%in%c("factor","numeric")){
       trees <- pbsapply(1:ntree, FUN=function(i){
         DynTree(Y = Y, Longitudinal = Longitudinal, Numeric = Numeric, Factor = Factor,
                 timeVar = timeVar, mtry = mtry, nsplit_option = nsplit_option,
-                nodesize = nodesize, seed = seed*i)
+                nodesize = nodesize, seed = seed*i, gradTol = gradTol)
       },cl=cl)
     }
 
@@ -84,14 +84,14 @@ rf_shape_para <- function(Longitudinal = NULL, Numeric = NULL, Factor = NULL,
         DynTree_surv(Y = Y, Longitudinal = Longitudinal, Numeric = Numeric, Factor = Factor,
                      timeVar = timeVar, mtry = mtry, nsplit_option = nsplit_option,
                      nodesize = nodesize, minsplit = minsplit, cause = cause,
-                     seed = seed*i)
+                     seed = seed*i, gradTol = gradTol)
       },cl=NULL)
     }
     if (Y$type%in%c("factor","numeric")){
       trees <- pbsapply(1:ntree, FUN=function(i){
         DynTree(Y = Y, Longitudinal = Longitudinal, Numeric = Numeric, Factor = Factor,
                 timeVar = timeVar, mtry = mtry, nsplit_option = nsplit_option,
-                nodesize = nodesize, seed = seed*i)
+                nodesize = nodesize, seed = seed*i, gradTol = gradTol)
       },cl=NULL)
     }
 
