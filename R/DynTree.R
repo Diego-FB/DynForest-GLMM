@@ -19,7 +19,7 @@
 #' @noRd
 DynTree <- function(Y, Longitudinal = NULL, Numeric = NULL, Factor = NULL,
                     timeVar = NULL, mtry = 1, nsplit_option = "quantile",
-                    nodesize = 1, seed = 1234, gradTol = NULL){
+                    nodesize = 1, seed = 1234, gradTol = 0.01){
 
   Inputs <- c(Longitudinal$type, Numeric$type, Factor$type)
   type_pred <- unlist(sapply(Inputs, FUN = function(x) return(rep(get(x)$type, ncol(get(x)$X)))))

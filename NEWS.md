@@ -1,6 +1,12 @@
 # DynForest 1.2.1
 
+## New features
+
+*   Added the `gradTol` argument to `dynforest()` (default `0.01`; `NULL` disables it). Binomial and Poisson longitudinal fits that glmmTMB flags as not converged are accepted, and marked with `used_grad_rescue = TRUE`, when the gradient is below `gradTol`, the Hessian is positive-definite and the random-effect variance has not collapsed. This reduces the bias against binomial and Poisson predictors in split selection. See the Details section of `dynforest()`.
+
 ## Minor changes
+
+*   Fixed `compute_vimp()` and `compute_gvimp()` returning `NaN` for every predictor when a single tree had a missing out-of-bag error.
 
 *   Fixed bug when `tibble` object is defined in `timeData`, `fixedData` or `Y$Y`.
 

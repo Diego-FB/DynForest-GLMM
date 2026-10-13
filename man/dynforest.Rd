@@ -19,7 +19,8 @@ dynforest(
   nsplit_option = "quantile",
   ncores = NULL,
   seed = 1234,
-  verbose = TRUE
+  verbose = TRUE,
+  gradTol = 0.01
 )
 }
 \arguments{
@@ -52,6 +53,11 @@ dynforest(
 \item{seed}{Seed to replicate results}
 
 \item{verbose}{A logical controlling the function progress. Default is \code{TRUE}}
+
+\item{gradTol}{Numeric or \code{NULL}. Convergence rescue for binomial and Poisson longitudinal
+predictors (fitted with glmmTMB). Default is \code{0.01}; use \code{gradTol = NULL} to disable it
+and reproduce the stricter behaviour without rescue. It has no effect on Gaussian or negative
+binomial predictors. See Details.}
 }
 \value{
 dynforest function returns a list with the following elements:\tabular{ll}{
@@ -81,6 +87,38 @@ Build a random forest using multivariate longitudinal endogenous covariates
 }
 \details{
 The function currently supports survival (competing or single event), continuous or categorical outcome.
+
+\strong{Convergence rescue for binomial and Poisson predictors (\code{gradTol}).}
+At each node, every longitudinal predictor is fitted with a mixed model and its predicted random
+effects are used to build the split. A fit that glmmTMB flags as not converged is normally
+discarded, and the predictor cannot compete for that split. For binomial and Poisson predictors
+this happens very often even when the optimizer has stopped at a point where the likelihood is
+already flat, whereas Gaussian predictors (fitted with lcmm) are almost never discarded. As a
+result Gaussian predictors win more splits than binomial or Poisson ones carrying the same signal,
+which also biases variable importance towards them.
+
+When \code{gradTol} is not \code{NULL}, a binomial or Poisson fit that fails the formal
+convergence check is accepted anyway, and flagged with \code{used_grad_rescue = TRUE} in the
+node parameters, only if all these conditions hold:
+\itemize{
+\item the maximum absolute gradient of the fixed effects is below \code{gradTol};
+\item the Hessian is positive-definite;
+\item the smallest random-effect standard deviation is above 1e-4 (the random-effect variance has
+not collapsed to the boundary);
+\item fixed effects, random-effect covariance parameters and predicted random effects are finite.
+}
+The last two conditions matter: with the gradient criterion alone, a small share of binomial fits
+(about 5\\% of the rescued ones in simulations) were near-complete-separation solutions with
+extreme coefficients and standard errors in the millions. The rescue is never applied to negative
+binomial or Gaussian predictors, and it does not change the number of optimizer iterations.
+
+In simulations with the same true signal in Gaussian, binomial and Poisson predictors, the rescue
+raised the share of splits won by binomial and Poisson predictors from about 18\\% and 25\\% to
+23-27\\% and 33-37\\% (a fair share is about 33\\% each), lowered that of Gaussian ones from about
+56\\% to 39\\%, increased the out-of-bag integrated Brier score by about 2\\% and did not change
+the C-index in held-out data detectably. Rescued nodes take part in the split like any other
+node, including through their predicted random effects. Use \code{gradTol = NULL} to disable the
+rescue, for instance to compare with results obtained without it.
 
 FUTUR IMPLEMENTATIONS:
 \itemize{

@@ -7,7 +7,7 @@
 #' @param cause (Only with competing events) Number indicates the event of interest.
 #' @param nodesize Minimal number of subjects required in both child nodes to split. Cannot be smaller than 1.
 #' @param init (Optional) Initial values for linear mixed models
-#' @param gradTol Numeric. If not \code{NULL} (default), binomial/poisson longitudinal glmmTMB
+#' @param gradTol Numeric or \code{NULL}. Binomial/poisson longitudinal glmmTMB
 #'   fits that fail the formal convergence check (\code{conv_ok = FALSE}) but whose maximum
 #'   fixed-effect gradient (\code{gradient_max}) is below \code{gradTol}, whose Hessian is
 #'   positive-definite (\code{pdHess = TRUE}), whose random-effect variance is not collapsed to
@@ -22,7 +22,7 @@
 #'   from near-complete-separation-like fits; with both checks the catastrophic rate drops from
 #'   ~4.8% to ~0.5% of rescued binomial nodes. Never applied to \code{negbin} fits (a flat gradient
 #'   there can reflect a poorly identified overdispersion parameter on a flat likelihood surface
-#'   rather than genuine convergence). Default is \code{NULL} (disabled); does not change the
+#'   rather than genuine convergence). Default is \code{0.01}; \code{NULL} disables it. Does not change the
 #'   optimizer's iteration budget or negbin/gaussian behavior.
 #'
 #' @import lcmm
@@ -32,7 +32,7 @@
 #' @noRd
 var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
                            cause = 1, nodesize = 1, init = NULL,
-                           gradTol = NULL){
+                           gradTol = 0.01){
 
   X_ncol <- ncol(X$X)
   all_imp_var <- split_var <- vector("list", X_ncol)

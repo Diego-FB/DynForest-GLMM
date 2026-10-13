@@ -25,7 +25,7 @@
 rf_shape_para <- function(Longitudinal = NULL, Numeric = NULL, Factor = NULL,
                           timeVar = NULL, Y, mtry, ntree, ncores,
                           nsplit_option = "quantile", nodesize = 1, minsplit = 2, cause = 1,
-                          seed = 1234, verbose = TRUE, gradTol = NULL){
+                          seed = 1234, verbose = TRUE, gradTol = 0.01){
 
   if (!verbose){
     pbapply::pboptions(type="none")
