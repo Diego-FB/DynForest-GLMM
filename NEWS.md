@@ -3,6 +3,7 @@
 ## New features
 
 *   Added the `gradTol` argument to `dynforest()` (default `0.01`; `NULL` disables it). Binomial and Poisson longitudinal fits that glmmTMB flags as not converged are accepted, and marked with `used_grad_rescue = TRUE`, when the gradient is below `gradTol`, the Hessian is positive-definite and the random-effect variance has not collapsed. This reduces the bias against binomial and Poisson predictors in split selection. See the Details section of `dynforest()`.
+*   Added the `re_singular` field to the node parameters of binomial, Poisson and negative binomial predictors, flagging fits whose random-effect covariance is singular (a standard deviation below 1e-4 or a correlation above 0.99 in absolute value).
 
 ## Minor changes
 

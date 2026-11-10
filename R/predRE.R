@@ -1,3 +1,29 @@
+# Base reducida cuando la covarianza del efecto aleatorio es singular:
+# b = V z, z ~ N(0, diag(lambda)); las direcciones sin varianza quedan en 0.
+re_singular_basis <- function(Sigma) {
+  eg <- tryCatch(eigen((Sigma + t(Sigma)) / 2, symmetric = TRUE), error = function(e) NULL)
+  if (is.null(eg) || any(!is.finite(eg$values))) return(NULL)
+  keep <- eg$values > max(eg$values, 0) * 1e-10
+  list(V = eg$vectors[, keep, drop = FALSE], lambda = eg$values[keep])
+}
+
+# Moda posterior del efecto aleatorio dada -loglik(b); Sigma_inv se usa si existe,
+# si no (covarianza singular) se optimiza en la base reducida. NULL si no converge.
+re_map <- function(negloglik, Sigma_inv, basis, q) {
+  if (is.null(basis)) {
+    f <- function(b) negloglik(b) + 0.5 * as.numeric(t(b) %*% Sigma_inv %*% b)
+    opt <- tryCatch(optim(par = rep(0, q), fn = f, method = "BFGS"), error = function(e) NULL)
+    if (!is.null(opt) && opt$convergence == 0) return(opt$par)
+    return(NULL)
+  }
+  r <- length(basis$lambda)
+  if (r == 0) return(rep(0, q))
+  f <- function(z) negloglik(as.vector(basis$V %*% z)) + 0.5 * sum(z^2 / basis$lambda)
+  opt <- tryCatch(optim(par = rep(0, r), fn = f, method = "BFGS"), error = function(e) NULL)
+  if (!is.null(opt) && opt$convergence == 0) return(as.vector(basis$V %*% opt$par))
+  NULL
+}
+
 #' Function to compute individual random effects using mixed model output parameters
 #'
 #' @param model output object from longitudinal mixed model
@@ -90,8 +116,10 @@ predRE <- function(model, formula, data){
       error = function(e) NULL
     )
     
+    basis <- NULL
     if (is.null(Sigma_inv)) {
-      return(list(bi = bi))
+      basis <- re_singular_basis(Sigma)
+      if (is.null(basis)) return(list(bi = bi))
     }
     
     response_name <- all.vars(fixed_formula)[1]
@@ -106,7 +134,7 @@ predRE <- function(model, formula, data){
       Z_i <- model.matrix(random_formula, data_i)
       y_i <- data_i[[response_name]]
       
-      nll <- function(b) {
+      negll <- function(b) {
         
         eta <- as.vector(X_i %*% beta + Z_i %*% b)
         
@@ -138,27 +166,97 @@ predRE <- function(model, formula, data){
           ))
         }
         
-        prior <- -0.5 * as.numeric(t(b) %*% Sigma_inv %*% b)
-        
-        return(-(loglik + prior))
+        return(-loglik)
       }
       
-      opt <- tryCatch(
-        optim(
-          par = rep(0, q),
-          fn = nll,
-          method = "BFGS"
-        ),
-        error = function(e) NULL
-      )
+      b_hat <- re_map(negll, Sigma_inv, basis, q)
       
-      if (!is.null(opt) && opt$convergence == 0) {
-        bi[rownames(bi) == id, ] <- opt$par
+      if (!is.null(b_hat)) {
+        bi[rownames(bi) == id, ] <- b_hat
       }
     }
     
     return(list(bi = bi))
   }
   
+  if (family == "ordinal") {
+
+    dataNA <- na.omit(data)
+
+    beta <- model$fixed
+    alpha <- model$alpha
+    Sigma <- model$varcov
+    lev <- model$levels
+    link <- if (is.null(model$link)) "logit" else model$link
+
+    Fcdf <- switch(
+      link,
+      logit = stats::plogis,
+      probit = stats::pnorm,
+      cloglog = function(x) 1 - exp(-exp(x)),
+      stop("Unsupported ordinal link in predRE().")
+    )
+
+    fixed_formula <- model$fixed_formula
+    random_formula <- model$random_formula
+
+    ids <- unique(data$id)
+
+    Z_all <- model.matrix(random_formula, dataNA)
+    q <- ncol(Z_all)
+
+    bi <- matrix(
+      NA,
+      nrow = length(ids),
+      ncol = q,
+      dimnames = list(ids, colnames(Z_all))
+    )
+
+    Sigma_inv <- tryCatch(solve(Sigma), error = function(e) NULL)
+    basis <- NULL
+    if (is.null(Sigma_inv)) {
+      basis <- re_singular_basis(Sigma)
+      if (is.null(basis)) return(list(bi = bi))
+    }
+
+    response_name <- all.vars(fixed_formula)[1]
+    K <- length(lev)
+    alpha_ext <- c(-Inf, alpha, Inf)
+
+    for (id in ids) {
+
+      data_i <- dataNA[dataNA$id == id, , drop = FALSE]
+      if (nrow(data_i) == 0) next
+
+      # observaciones con nivel no visto en el nodo se omiten
+      k_i <- match(as.character(data_i[[response_name]]), lev)
+      keep <- !is.na(k_i)
+      if (!any(keep)) next
+      data_i <- data_i[keep, , drop = FALSE]
+      k_i <- k_i[keep]
+
+      X_full <- model.matrix(fixed_formula[-2], data_i)
+      X_i <- X_full[, setdiff(colnames(X_full), "(Intercept)"), drop = FALSE]
+      Z_i <- model.matrix(random_formula, data_i)
+
+      negll <- function(b) {
+
+        eta <- as.vector(Z_i %*% b)
+        if (length(beta) > 0) eta <- eta + as.vector(X_i %*% beta)
+
+        p <- Fcdf(alpha_ext[k_i + 1] - eta) - Fcdf(alpha_ext[k_i] - eta)
+        return(-sum(log(pmax(p, 1e-12))))
+      }
+
+      b_hat <- re_map(negll, Sigma_inv, basis, q)
+
+      if (!is.null(b_hat)) {
+        bi[rownames(bi) == id, ] <- b_hat
+      }
+    }
+
+    return(list(bi = bi))
+  }
+
   stop("Unsupported family in predRE().")
 }

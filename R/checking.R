@@ -78,6 +78,30 @@ checking <- function(dynforest_obj = NULL,
         ))
       }
 
+      fams_chk <- vapply(timeVarModel, function(m){
+        if (is.null(m$family)) "gaussian" else as.character(m$family)
+      }, character(1))
+      bad_fam <- setdiff(unique(fams_chk), c("gaussian", "binomial", "poisson", "negbin", "ordinal"))
+      if (length(bad_fam) > 0){
+        cli_abort(c(
+          "Unsupported {.var family} in {.var timeVarModel}: {.val {bad_fam}}",
+          "i" = "Supported families are \"gaussian\", \"binomial\", \"poisson\", \"negbin\" and \"ordinal\""
+        ))
+      }
+      if (any(fams_chk == "ordinal") && !requireNamespace("RTMB", quietly = TRUE)){
+        cli_abort(c(
+          "Package {.pkg RTMB} is required for {.code family = \"ordinal\"}"
+        ))
+      }
+      for (v in names(fams_chk)[fams_chk == "ordinal"]){
+        y_ord <- timeData[[v]]
+        if (!is.factor(y_ord) && !(is.numeric(y_ord) && all(y_ord[!is.na(y_ord)] == round(y_ord[!is.na(y_ord)])))){
+          cli_abort(c(
+            "Ordinal marker {.var {v}} must be an (ordered) factor or an integer-coded numeric variable"
+          ))
+        }
+      }
+
       if (!all(colnames(timeData)[-which(colnames(timeData)%in%c(idVar, timeVar))]%in%names(timeVarModel))){
         cli_abort(c(
           "{.var timeData} predictor names must be included in the list names of {.var timeVarModel}"

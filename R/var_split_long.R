@@ -63,11 +63,14 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
     family <- X$model[[i]]$family
     if (is.null(family)) family <- "gaussian"
 
-    if (!family %in% c("gaussian", "binomial", "poisson", "negbin")) {
-      stop("Only family = 'gaussian', 'binomial', 'poisson' and 'negbin' are currently implemented.")
+    if (!family %in% c("gaussian", "binomial", "poisson", "negbin", "ordinal")) {
+      stop("Only family = 'gaussian', 'binomial', 'poisson', 'negbin' and 'ordinal' are currently implemented.")
     }
 
     used_grad_rescue <- FALSE
+    gate_rejected <- FALSE
+    fit_error_msg <- NA_character_
+    used_cold_retry <- FALSE
 
     if (family == "gaussian") {
 
@@ -84,6 +87,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
             verbose = FALSE
           ),
           error = function(e){
+            fit_error_msg <<- conditionMessage(e)
             return(NULL)
           }
         )
@@ -99,6 +103,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
               verbose = FALSE
             ),
             error = function(e){
+              fit_error_msg <<- conditionMessage(e)
               return(NULL)
             }
           )
@@ -116,6 +121,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
             verbose = FALSE
           ),
           error = function(e){
+            fit_error_msg <<- conditionMessage(e)
             return(NULL)
           }
         )
@@ -225,6 +231,91 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
       }
     }
 
+    if (family == "ordinal") {
+
+      # Modelo mixto de enlace acumulativo (logit/probit/cloglog) ajustado con
+      # RTMB (Laplace, gradiente exacto): ver fit_ordinal_rtmb(). Los umbrales
+      # sustituyen al intercepto. El arranque en caliente reutiliza los
+      # parametros del nodo padre solo si el conjunto de niveles observados
+      # coincide; si el ajuste falla se reintenta en frio.
+
+      fixed_formula <- X$model[[i]]$fixed
+      random_formula <- X$model[[i]]$random
+      link_ord <- X$model[[i]]$link
+      if (is.null(link_ord)) link_ord <- "logit"
+
+      response_name <- all.vars(fixed_formula)[1]
+      vars_ord <- unique(c("id", all.vars(fixed_formula), all.vars(random_formula)))
+      data_ord <- stats::na.omit(data_model[, vars_ord, drop = FALSE])
+
+      y_raw <- data_ord[[response_name]]
+      y_levels <- if (is.factor(y_raw)) {
+        levels(droplevels(y_raw))
+      } else {
+        as.character(sort(unique(y_raw)))
+      }
+
+      fit_error_msg <- NA_character_
+      used_cold_retry <- FALSE
+      model_output <- NULL
+
+      if (length(y_levels) < 2) {
+        fit_error_msg <- "ordinal response has fewer than 2 observed levels in the node"
+      } else {
+
+        y_int <- match(as.character(y_raw), y_levels)
+        X_ord <- tryCatch({
+          mm <- stats::model.matrix(fixed_formula[-2], data_ord)
+          mm[, setdiff(colnames(mm), "(Intercept)"), drop = FALSE]
+        }, error = function(e) NULL)
+        Z_ord <- tryCatch(stats::model.matrix(random_formula, data_ord), error = function(e) NULL)
+        id_fac <- factor(data_ord$id)
+        id_int <- as.integer(id_fac)
+        id_vals <- as.numeric(levels(id_fac))
+
+        if (is.null(X_ord) || is.null(Z_ord)) {
+          fit_error_msg <- "design matrices could not be built"
+        } else {
+
+          start_ord <- NULL
+          ini <- init[[colnames_X_i]]
+          if (is.list(ini) && is.list(ini$start) && identical(ini$levels, y_levels) &&
+              length(ini$start$beta) == ncol(X_ord) &&
+              length(ini$start$Lvec) == ncol(Z_ord) * (ncol(Z_ord) + 1) / 2) {
+            start_ord <- ini$start
+          }
+
+          fit_ord <- function(start){
+            tryCatch(
+              fit_ordinal_rtmb(y_int, X_ord, Z_ord, id_int, length(y_levels),
+                               link = link_ord, start = start),
+              error = function(e){
+                fit_error_msg <<- conditionMessage(e)
+                return(NULL)
+              }
+            )
+          }
+
+          fit_usable <- function(m){
+            !is.null(m) && isTRUE(m$conv == 0) &&
+              all(is.finite(c(m$alpha, m$beta, m$varcov, m$ranef)))
+          }
+
+          model_output <- fit_ord(start_ord)
+
+          if (!fit_usable(model_output) && !is.null(start_ord)) {
+            model_output_cold <- fit_ord(NULL)
+            if (!is.null(model_output_cold)) {
+              model_output <- model_output_cold
+              used_cold_retry <- TRUE
+            }
+          }
+
+          if (!is.null(model_output)) model_output$ids <- id_vals
+        }
+      }
+    }
+
     if (is.null(model_output)) {
       conv_issue <- c(conv_issue, colnames_X_i)
 
@@ -240,6 +331,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         theta_nb = NA_real_,
         used_cold_retry = used_cold_retry,
         used_grad_rescue = used_grad_rescue,
+        gate_rejected = gate_rejected,
         theta_se_log = NA_real_,
         gradient_max = NA_real_
 
@@ -283,55 +375,49 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
       }, error = function(e) FALSE)
 
       # ------------------------------------------------------------
-      # Rescate por gradiente (gradTol): un fallo formal de
-      # convergencia (conv_ok = FALSE) con beta_ok/theta_ok/re_ok
-      # TRUE, gradiente maximo por debajo de gradTol, Hessiano
-      # positivo-definido (pdHess) y varianza de efecto aleatorio NO
-      # colapsada (re_sd_min > 1e-4, mismo umbral por defecto que
-      # lme4::isSingular(), usado antes para el fallback de blme) se
-      # acepta como convergido. Solo binomial/poisson (NUNCA negbin,
-      # por el riesgo de falso positivo en superficies de
-      # verosimilitud planas con theta no identificado). No modifica
-      # el numero de iteraciones del optimizador.
+      # Criterio comun de convergencia (binomial/poisson, con gradTol no
+      # NULL). El codigo de convergencia de glmmTMB deja de decidir: un
+      # ajuste con coeficientes y efectos aleatorios finitos se acepta si
+      # y solo si el criterio de derivadas (RDM, "relative distance to
+      # maximum", g' H^-1 g, la misma definicion que el convG de
+      # lcmm::hlme, que usa gaussiana) es <= gradTol. Se calcula con el
+      # gradiente y la covarianza de los parametros de sdreport(). Si la
+      # covarianza no es calculable (RDM no finito) se rechaza. Se aplica
+      # por igual a los que glmmTMB da por convergidos y a los que no. Con
+      # gradTol = NULL se conserva el criterio anterior (solo conv_ok).
+      # Nunca negbin (riesgo de falso positivo con theta no identificado).
+      # No modifica el numero de iteraciones del optimizador.
       #
-      # Los chequeos de pdHess y re_sd_min se anadieron tras un
-      # diagnostico sobre una prueba de equidad a gran escala (6
-      # marcadores, N=400, ntree=100, 30 replicas): sin ellos, ~4.8%
-      # de los nodos binomiales rescatados (nunca poisson) terminaban
-      # con errores estandar catastroficos (hasta miles de millones),
-      # tipicamente con intercepto en torno a -33, varianza de efecto
-      # aleatorio colapsada (~0.00008) y un gradiente sospechosamente
-      # exacto (~1e-14) - el patron clasico de una superficie de
-      # verosimilitud plana por separacion (cuasi-)completa, no de
-      # una convergencia genuina. Con ambos chequeos anadidos, esa
-      # tasa cae a ~0.5% (validado sobre 2316 nodos binomiales
-      # rescatados de 5 replicas reales), conservando el 71.5% de los
-      # rescates originales. El resto de fallos de convergencia
-      # (beta_ok/theta_ok/re_ok, gradTol, familia) no cambian.
+      # Registro: used_grad_rescue = TRUE si se acepta un ajuste que
+      # glmmTMB marco como no convergido; gate_rejected = TRUE si se rechaza
+      # uno que glmmTMB marco como convergido (conv_ok se deja en TRUE para
+      # distinguirlo de un fallo formal). pdHess y la varianza del efecto
+      # aleatorio ya no rechazan; quedan como informacion (pdHess,
+      # re_singular en model_param).
       # ------------------------------------------------------------
 
-      if (!isTRUE(conv_ok) && !is.null(gradTol) && family %in% c("binomial", "poisson") &&
+      rdm <- NA_real_
+
+      if (!is.null(gradTol) && family %in% c("binomial", "poisson") &&
           isTRUE(beta_ok) && isTRUE(theta_ok) && isTRUE(re_ok)) {
 
-        gradient_max_tmp <- tryCatch(
-          max(abs(model_output$sdr$gradient.fixed), na.rm = TRUE),
-          error = function(e) NA_real_
-        )
-
-        re_sd_min_tmp <- tryCatch({
-          vc <- glmmTMB::VarCorr(model_output)$cond$id
-          min(attr(vc, "stddev"))
+        rdm <- tryCatch({
+          g_tmp <- as.numeric(model_output$sdr$gradient.fixed)
+          H_tmp <- model_output$sdr$cov.fixed
+          as.numeric(t(g_tmp) %*% H_tmp %*% g_tmp)
         }, error = function(e) NA_real_)
 
-        if (is.finite(gradient_max_tmp) && gradient_max_tmp < gradTol &&
-            isTRUE(pdHess) &&
-            is.finite(re_sd_min_tmp) && re_sd_min_tmp > 1e-4) {
+        rule_ok <- is.finite(rdm) && rdm <= gradTol
+
+        if (rule_ok) {
+          if (!isTRUE(conv_ok)) used_grad_rescue <- TRUE
           conv_ok <- TRUE
-          used_grad_rescue <- TRUE
+        } else if (isTRUE(conv_ok)) {
+          gate_rejected <- TRUE
         }
       }
 
-      if (!isTRUE(conv_ok) || !isTRUE(beta_ok) || !isTRUE(theta_ok) || !isTRUE(re_ok)) {
+      if (!isTRUE(conv_ok) || !isTRUE(beta_ok) || !isTRUE(theta_ok) || !isTRUE(re_ok) || gate_rejected) {
 
         conv_issue <- c(conv_issue, colnames_X_i)
 
@@ -351,6 +437,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
           },
           used_cold_retry = used_cold_retry,
           used_grad_rescue = used_grad_rescue,
+          gate_rejected = gate_rejected,
           theta_se_log = if (family == "negbin") {
             tryCatch({
               summ <- summary(model_output$sdr)
@@ -363,7 +450,62 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
           gradient_max = tryCatch(
             max(abs(model_output$sdr$gradient.fixed), na.rm = TRUE),
             error = function(e) NA_real_
-          )
+          ),
+          rdm = rdm
+        )
+
+        next()
+      }
+    }
+
+    if (family == "ordinal") {
+
+      # Mismos criterios que binomial/poisson: valores finitos y, con gradTol no
+      # NULL, RDM = g' H^-1 g <= gradTol (gradiente y Hessiana del ajuste); con
+      # gradTol = NULL solo cuenta la convergencia formal del optimizador.
+
+      conv_ok <- isTRUE(model_output$conv == 0)
+      beta_ok <- tryCatch(all(is.finite(c(model_output$alpha, model_output$beta))), error = function(e) FALSE)
+      theta_ok <- tryCatch(all(is.finite(model_output$varcov)), error = function(e) FALSE)
+      re_ok <- tryCatch(all(is.finite(model_output$ranef)), error = function(e) FALSE)
+      pdHess <- tryCatch(all(is.finite(solve(model_output$hessian))), error = function(e) FALSE)
+
+      rdm <- NA_real_
+
+      if (!is.null(gradTol) && isTRUE(beta_ok) && isTRUE(theta_ok) && isTRUE(re_ok)) {
+
+        rdm <- model_output$rdm
+
+        rule_ok <- is.finite(rdm) && rdm <= gradTol
+
+        if (rule_ok) {
+          if (!isTRUE(conv_ok)) used_grad_rescue <- TRUE
+          conv_ok <- TRUE
+        } else if (isTRUE(conv_ok)) {
+          gate_rejected <- TRUE
+        }
+      }
+
+      if (!isTRUE(conv_ok) || !isTRUE(beta_ok) || !isTRUE(theta_ok) || !isTRUE(re_ok) || gate_rejected) {
+
+        conv_issue <- c(conv_issue, colnames_X_i)
+
+        conv_issue_detail[[colnames_X_i]] <- list(
+          variable = colnames_X_i,
+          family = family,
+          error_msg = NA_character_,
+          conv_ok = conv_ok,
+          pdHess = pdHess,
+          beta_ok = beta_ok,
+          theta_ok = theta_ok,
+          re_ok = re_ok,
+          theta_nb = NA_real_,
+          used_cold_retry = used_cold_retry,
+          used_grad_rescue = used_grad_rescue,
+          gate_rejected = gate_rejected,
+          theta_se_log = NA_real_,
+          gradient_max = tryCatch(max(abs(model_output$gradient), na.rm = TRUE), error = function(e) NA_real_),
+          rdm = rdm
         )
 
         next()
@@ -435,6 +577,18 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         }
       }
 
+      # Covarianza de efectos aleatorios en el borde: alguna desviacion tipica
+      # < 1e-4 o alguna correlacion fuera de la diagonal con |cor| > 0.99
+      # (matriz de rango casi deficiente, el modelo estima menos direcciones
+      # de variacion entre sujetos de las que se le piden). Solo informativo.
+      re_singular <- tryCatch({
+        vc <- glmmTMB::VarCorr(model_output)$cond$id
+        sds <- attr(vc, "stddev")
+        cr <- attr(vc, "correlation")
+        off_diag <- if (length(sds) > 1) abs(cr[upper.tri(cr)]) else numeric(0)
+        any(sds < 1e-4) || any(off_diag > 0.99)
+      }, error = function(e) NA)
+
       model_param[[i]] <- list(
         family = family,
         fixed = glmmTMB::fixef(model_output)$cond,
@@ -448,6 +602,8 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         conv_ok = conv_ok,
         used_cold_retry = used_cold_retry,
         used_grad_rescue = used_grad_rescue,
+        re_singular = re_singular,
+        rdm = rdm,
         gradient_max = tryCatch(
           max(abs(model_output$sdr$gradient.fixed), na.rm = TRUE),
           error = function(e) NA_real_
@@ -457,6 +613,53 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
 
       RE_raw <- glmmTMB::ranef(model_output)$cond$id
       RE_raw$id <- as.numeric(rownames(RE_raw))
+
+      RE <- merge(
+        unique(Y$id),
+        RE_raw,
+        all.x = TRUE,
+        by.x = "x",
+        by.y = "id"
+      )[,-1, drop = FALSE]
+    }
+
+    if (family == "ordinal") {
+
+      init[[colnames_X_i]] <- list(
+        start = model_output$par,
+        levels = y_levels
+      )
+
+      re_singular <- tryCatch({
+        vc <- model_output$varcov
+        sds <- sqrt(diag(vc))
+        off_diag <- if (length(sds) > 1) {
+          cr <- stats::cov2cor(vc)
+          abs(cr[upper.tri(cr)])
+        } else numeric(0)
+        any(sds < 1e-4) || any(off_diag > 0.99, na.rm = TRUE)
+      }, error = function(e) NA)
+
+      model_param[[i]] <- list(
+        family = "ordinal",
+        alpha = model_output$alpha,
+        fixed = model_output$beta,
+        varcov = model_output$varcov,
+        fixed_formula = fixed_formula,
+        random_formula = random_formula,
+        link = link_ord,
+        levels = y_levels,
+        pdHess = pdHess,
+        conv_ok = conv_ok,
+        used_cold_retry = used_cold_retry,
+        used_grad_rescue = used_grad_rescue,
+        re_singular = re_singular,
+        rdm = rdm,
+        gradient_max = tryCatch(max(abs(model_output$gradient), na.rm = TRUE), error = function(e) NA_real_)
+      )
+
+      RE_raw <- as.data.frame(model_output$ranef)
+      RE_raw$id <- model_output$ids
 
       RE <- merge(
         unique(Y$id),

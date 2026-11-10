@@ -112,13 +112,32 @@ The last two conditions matter: with the gradient criterion alone, a small share
 extreme coefficients and standard errors in the millions. The rescue is never applied to negative
 binomial or Gaussian predictors, and it does not change the number of optimizer iterations.
 
-In simulations with the same true signal in Gaussian, binomial and Poisson predictors, the rescue
-raised the share of splits won by binomial and Poisson predictors from about 18\\% and 25\\% to
-23-27\\% and 33-37\\% (a fair share is about 33\\% each), lowered that of Gaussian ones from about
-56\\% to 39\\%, increased the out-of-bag integrated Brier score by about 2\\% and did not change
-the C-index in held-out data detectably. Rescued nodes take part in the split like any other
-node, including through their predicted random effects. Use \code{gradTol = NULL} to disable the
-rescue, for instance to compare with results obtained without it.
+In simulations with the same true individual effect in Gaussian, binomial and Poisson
+predictors, the rescue lowered the share of splits won by Gaussian predictors from about
+55-61\\% to about 39\\% (true random intercept only) or 43\\% (true random intercept and slope),
+and raised that of binomial and Poisson predictors accordingly. With a true random intercept and
+slope the out-of-bag integrated Brier score did not change detectably; with a true random
+intercept only (and a random slope fitted anyway) it increased by about 2\\%. The C-index in
+held-out data did not change detectably in either case. Equal shares are not expected even with
+perfect convergence, because a binary or count marker carries less information about the
+individual effect than a Gaussian one.
+
+\strong{Singular random-effect fits.} Many binomial and Poisson fits, rescued or not, have a
+singular random-effect covariance: the model estimates fewer directions of variation between
+subjects than it is asked to (for instance an intercept-slope correlation of 1 or -1). In the
+simulations with a true random intercept and slope, all rescued fits and about half of the
+accepted fits that glmmTMB considered converged were singular in this sense. Their predicted
+random intercepts ordered subjects clearly worse than those of non-singular fits (correlation
+with the true effect of about 0.12-0.16 against 0.48), whereas their predicted random slopes were
+closer (0.52-0.67 against 0.75). Rescued nodes take part in the split like any other node, and
+in the simulations this did not produce a detectable loss of predictive performance. For
+binomial, Poisson and negative binomial predictors, the parameters of each node include
+\code{re_singular}, which is \code{TRUE} when any random-effect standard deviation is below 1e-4
+or any correlation exceeds 0.99 in absolute value (\code{NA} if it cannot be computed), so that
+these nodes can be identified.
+
+Use \code{gradTol = NULL} to disable the rescue, for instance to compare with results obtained
+without it.
 
 FUTUR IMPLEMENTATIONS:
 \itemize{
