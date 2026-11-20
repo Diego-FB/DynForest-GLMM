@@ -95,9 +95,9 @@ checking <- function(dynforest_obj = NULL,
       }
       for (v in names(fams_chk)[fams_chk == "ordinal"]){
         y_ord <- timeData[[v]]
-        if (!is.factor(y_ord) && !(is.numeric(y_ord) && all(y_ord[!is.na(y_ord)] == round(y_ord[!is.na(y_ord)])))){
+        if (!(is.numeric(y_ord) && all(y_ord[!is.na(y_ord)] == round(y_ord[!is.na(y_ord)])))){
           cli_abort(c(
-            "Ordinal marker {.var {v}} must be an (ordered) factor or an integer-coded numeric variable"
+            "Ordinal marker {.var {v}} must be an integer-coded numeric variable"
           ))
         }
       }

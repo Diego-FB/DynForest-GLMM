@@ -114,17 +114,11 @@ compute_gvimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
   pbapply::pboptions(type="none")
 
   cl <- parallel::makeCluster(ncores)
-
-  dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
-  if (!is.na(dev_path) && nzchar(dev_path)) {
-    parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
-    parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
-  }
   doParallel::registerDoParallel(cl)
 
   pck <- .packages()
   dir0 <- find.package()
-  dir <- sapply(1:length(pck),function(k){gsub(pck[k],"",dir0[k])})
+  dir <- sapply(1:length(pck),function(k){dirname(dir0[k])})
   parallel::clusterExport(cl,list("pck","dir"),envir=environment())
   parallel::clusterEvalQ(cl,sapply(1:length(pck),function(k){require(pck[k],lib.loc=dir[k],character.only=TRUE)}))
 
@@ -191,17 +185,11 @@ compute_gvimp <- function(dynforest_obj, IBS.min = 0, IBS.max = NULL,
     k <- NULL
 
     cl <- parallel::makeCluster(ncores)
-
-    dev_path <- Sys.getenv("DYNFOREST_GLMM_DEV_PATH", unset = NA_character_)
-    if (!is.na(dev_path) && nzchar(dev_path)) {
-      parallel::clusterExport(cl, varlist = "dev_path", envir = environment())
-      parallel::clusterEvalQ(cl, { pkgload::load_all(dev_path, reset = TRUE); NULL })
-    }
     doParallel::registerDoParallel(cl)
 
     pck <- .packages()
     dir0 <- find.package()
-    dir <- sapply(1:length(pck),function(k){gsub(pck[k],"",dir0[k])})
+    dir <- sapply(1:length(pck),function(k){dirname(dir0[k])})
     parallel::clusterExport(cl,list("pck","dir"),envir=environment())
     parallel::clusterEvalQ(cl,sapply(1:length(pck),function(k){require(pck[k],lib.loc=dir[k],character.only=TRUE)}))
 

@@ -127,9 +127,15 @@ plot.dynforest <- function(x, tree = NULL, nodes = NULL, id = NULL, max_tree = N
     ))
   }
 
+  if (x$type != "surv"){
+    cli_abort(c(
+      "plot() is only available for survival outcomes"
+    ))
+  }
+
   if (!is.null(tree)){
 
-    if (!inherits(tree, "numeric")){
+    if (!is.numeric(tree)){
       cli_abort(c(
         "{.var tree} must be a numeric object containing the tree identifier",
         "x" = "You've supplied a {.cls {class(tree)}} object"
@@ -144,7 +150,7 @@ plot.dynforest <- function(x, tree = NULL, nodes = NULL, id = NULL, max_tree = N
     }
 
     if (all(!is.null(nodes))){
-      if (!all(inherits(nodes, "numeric"))){
+      if (!is.numeric(nodes)){
         cli_abort(c(
           "{.var nodes} must be a numeric vector containing the node identifiers",
           "x" = "You've supplied a {.cls {class(nodes)}} object"
@@ -188,8 +194,8 @@ plot.dynforest <- function(x, tree = NULL, nodes = NULL, id = NULL, max_tree = N
 
     data.CIF.plot <- do.call(rbind, CIFs_nodes_list)
 
-    g <- ggplot(data.CIF.plot, aes_string(x = "Time", y = "CIF")) +
-      geom_step(aes_string(group = "Cause", color = "Cause")) +
+    g <- ggplot(data.CIF.plot, aes(x = .data[["Time"]], y = .data[["CIF"]])) +
+      geom_step(aes(group = .data[["Cause"]], color = .data[["Cause"]])) +
       facet_wrap(~ Node) +
       ylim(0,1) +
       theme_bw()
@@ -242,8 +248,8 @@ plot.dynforest <- function(x, tree = NULL, nodes = NULL, id = NULL, max_tree = N
       data.CIF.plot <- data.CIF.plot[which(data.CIF.plot$Tree%in%max_tree_id),]
     }
 
-    g <- ggplot(data.CIF.plot, aes_string(x = "Time", y = "CIF")) +
-      geom_step(aes_string(group = "Cause", color = "Cause")) +
+    g <- ggplot(data.CIF.plot, aes(x = .data[["Time"]], y = .data[["CIF"]])) +
+      geom_step(aes(group = .data[["Cause"]], color = .data[["Cause"]])) +
       facet_wrap(~ Tree_Node) +
       ylim(0,1) +
       theme_bw()
@@ -281,9 +287,9 @@ plot.dynforestvardepth <- function(x, plot_level = c("predictor","feature"), ...
       return(sum(!is.na(x)))
     })
 
-    g <- ggplot(depth.df, aes_string(x = "var", y = "id_node")) +
-      geom_boxplot(aes_string(fill = "group")) +
-      geom_text(data = depth.nbtree, aes_string(x = "var", label = "id_node"),
+    g <- ggplot(depth.df, aes(x = .data[["var"]], y = .data[["id_node"]])) +
+      geom_boxplot(aes(fill = .data[["group"]]), na.rm = TRUE) +
+      geom_text(data = depth.nbtree, aes(x = .data[["var"]], label = .data[["id_node"]]),
                 y = max(depth.df$id_node, na.rm = T) - 1) +
       scale_x_discrete(limits=rev(unique(depth.df$var)[str_order(unique(depth.df$var))])) +
       xlab("Features") +
@@ -304,9 +310,9 @@ plot.dynforestvardepth <- function(x, plot_level = c("predictor","feature"), ...
 
     depthVar.nbtree <- aggregate(id_node ~ group, data = depthVar.df, FUN = length)
 
-    g <- ggplot(depthVar.df, aes_string(x = "group", y = "id_node")) +
-      geom_boxplot(aes_string(fill = "group")) +
-      geom_text(data = depthVar.nbtree, aes_string(x = "group", label = "id_node"),
+    g <- ggplot(depthVar.df, aes(x = .data[["group"]], y = .data[["id_node"]])) +
+      geom_boxplot(aes(fill = .data[["group"]])) +
+      geom_text(data = depthVar.nbtree, aes(x = .data[["group"]], label = .data[["id_node"]]),
                 y = max(depthVar.df$id_node, na.rm = T) - 1) +
       scale_x_discrete(limits=rev(unique(depthVar.df$group)[str_order(unique(depthVar.df$group))])) +
       xlab("Predictors") +
@@ -336,7 +342,7 @@ plot.dynforestvimp <- function(x, PCT = FALSE, ordering = TRUE, ...){
 
   if (ordering){
     g <- ggplot(vimp.df) +
-      geom_bar(aes_string("var", "vimp"), stat = "identity") +
+      geom_bar(aes(.data[["var"]], .data[["vimp"]]), stat = "identity") +
       scale_x_discrete(limits=vimp.df$var[order(vimp.df$vimp)]) +
       xlab("Predictors") +
       ylab(ifelse(PCT,"% VIMP","VIMP")) +
@@ -344,7 +350,7 @@ plot.dynforestvimp <- function(x, PCT = FALSE, ordering = TRUE, ...){
       theme_bw()
   }else{
     g <- ggplot(vimp.df) +
-      geom_bar(aes_string("var", "vimp"), stat = "identity") +
+      geom_bar(aes(.data[["var"]], .data[["vimp"]]), stat = "identity") +
       xlab("Predictors") +
       ylab(ifelse(PCT,"% VIMP","VIMP")) +
       coord_flip() +
@@ -366,7 +372,7 @@ plot.dynforestgvimp <- function(x, PCT = FALSE, ...){
   }
 
   g <- ggplot(vimp.df) +
-    geom_bar(aes_string("var", "vimp"), stat = "identity") +
+    geom_bar(aes(.data[["var"]], .data[["vimp"]]), stat = "identity") +
     scale_x_discrete(limits=vimp.df$var[order(vimp.df$vimp)]) +
     xlab("Group of predictors") +
     ylab(ifelse(PCT,"% grouped-VIMP","grouped-VIMP")) +
@@ -383,6 +389,10 @@ plot.dynforestpred <- function(x, id = NULL, ...){
 
   if (!methods::is(x,"dynforestpred")){
     stop("'x' should be a 'dynforestpred' class!")
+  }
+
+  if (is.null(x$times)){
+    stop("plot() is only available for survival outcomes")
   }
 
   if (is.null(id)){
@@ -403,7 +413,7 @@ plot.dynforestpred <- function(x, id = NULL, ...){
                               Time = rep(times, length(id)),
                               CIF = c(t(data.CIF)))
 
-  g <- ggplot(data.CIF.plot, aes_string(x = "Time", y = "CIF")) +
+  g <- ggplot(data.CIF.plot, aes(x = .data[["Time"]], y = .data[["CIF"]])) +
     geom_step(aes(group = id, color = id)) +
     ylim(0,1) +
     geom_vline(xintercept = x$t0, linetype = "dashed") +

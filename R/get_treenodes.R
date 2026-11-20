@@ -68,7 +68,7 @@ get_treenodes <- function(dynforest_obj, tree = NULL){
     ))
   }
 
-  if (!inherits(tree, "numeric")){
+  if (!is.numeric(tree)){
     cli_abort(c(
       "{.var tree} must be a numeric object containing the tree identifier",
       "x" = "You've supplied a {.cls {class(tree)}} object"

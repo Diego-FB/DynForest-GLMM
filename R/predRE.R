@@ -1,5 +1,5 @@
-# Base reducida cuando la covarianza del efecto aleatorio es singular:
-# b = V z, z ~ N(0, diag(lambda)); las direcciones sin varianza quedan en 0.
+# Reduced basis for a singular random-effect covariance:
+# b = V z, z ~ N(0, diag(lambda)); directions without variance stay at 0.
 re_singular_basis <- function(Sigma) {
   eg <- tryCatch(eigen((Sigma + t(Sigma)) / 2, symmetric = TRUE), error = function(e) NULL)
   if (is.null(eg) || any(!is.finite(eg$values))) return(NULL)
@@ -7,8 +7,9 @@ re_singular_basis <- function(Sigma) {
   list(V = eg$vectors[, keep, drop = FALSE], lambda = eg$values[keep])
 }
 
-# Moda posterior del efecto aleatorio dada -loglik(b); Sigma_inv se usa si existe,
-# si no (covarianza singular) se optimiza en la base reducida. NULL si no converge.
+# Posterior mode of the random effects given -loglik(b). Uses Sigma_inv when it
+# exists, otherwise (singular covariance) optimises in the reduced basis.
+# Returns NULL if the optimisation does not converge.
 re_map <- function(negloglik, Sigma_inv, basis, q) {
   if (is.null(basis)) {
     f <- function(b) negloglik(b) + 0.5 * as.numeric(t(b) %*% Sigma_inv %*% b)
@@ -228,7 +229,7 @@ predRE <- function(model, formula, data){
       data_i <- dataNA[dataNA$id == id, , drop = FALSE]
       if (nrow(data_i) == 0) next
 
-      # observaciones con nivel no visto en el nodo se omiten
+      # observations with a level not seen in the node are dropped
       k_i <- match(as.character(data_i[[response_name]]), lev)
       keep <- !is.na(k_i)
       if (!any(keep)) next

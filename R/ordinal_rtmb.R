@@ -57,7 +57,7 @@ fit_ordinal_rtmb <- function(y, X, Z, id, K, link = "logit", start = NULL,
 
   nll_fun <- function(par){
 
-    # Fuera del entorno global RTMB no sobrecarga estos operadores por si solo
+    # Outside the global environment RTMB does not overload these operators automatically
     "[<-" <- RTMB::ADoverload("[<-")
     "c" <- RTMB::ADoverload("c")
 
@@ -119,7 +119,7 @@ fit_ordinal_rtmb <- function(y, X, Z, id, K, link = "logit", start = NULL,
   g <- tryCatch(as.numeric(obj$gr(opt$par)), error = function(e) rep(NA_real_, length(opt$par)))
   H <- tryCatch(stats::optimHess(opt$par, obj$fn, obj$gr), error = function(e) NULL)
 
-  # RDM = g' H^-1 g; solo es interpretable con Hessiana definida positiva
+  # RDM = g' H^-1 g, only meaningful when the Hessian is positive definite
   rdm <- tryCatch({
     if (any(eigen(H, symmetric = TRUE, only.values = TRUE)$values <= 0)) NA_real_
     else as.numeric(t(g) %*% solve(H) %*% g)

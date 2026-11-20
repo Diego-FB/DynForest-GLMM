@@ -32,7 +32,7 @@
 #' @noRd
 var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
                            cause = 1, nodesize = 1, init = NULL,
-                           gradTol = 0.01){
+                           gradTol = 1e-4){
 
   X_ncol <- ncol(X$X)
   all_imp_var <- split_var <- vector("list", X_ncol)
@@ -189,7 +189,7 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         }
       )
 
-      # Fallback: si había warm start y el ajuste falló (o no pasa los checks), reintenta en frío
+      # If a warm start was used and the fit failed or did not pass the checks, refit from scratch
       needs_cold_retry <- is.null(model_output)
 
       if (!needs_cold_retry) {
@@ -233,11 +233,10 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
 
     if (family == "ordinal") {
 
-      # Modelo mixto de enlace acumulativo (logit/probit/cloglog) ajustado con
-      # RTMB (Laplace, gradiente exacto): ver fit_ordinal_rtmb(). Los umbrales
-      # sustituyen al intercepto. El arranque en caliente reutiliza los
-      # parametros del nodo padre solo si el conjunto de niveles observados
-      # coincide; si el ajuste falla se reintenta en frio.
+      # Cumulative link mixed model (logit/probit/cloglog) fitted with RTMB (Laplace
+      # approximation, exact gradient); the thresholds replace the intercept. The
+      # parent node parameters are used as warm start only if the observed levels
+      # are the same; otherwise, or if the fit fails, the model is refitted from scratch.
 
       fixed_formula <- X$model[[i]]$fixed
       random_formula <- X$model[[i]]$random
@@ -374,27 +373,15 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         all(is.finite(as.matrix(re_tmp)))
       }, error = function(e) FALSE)
 
-      # ------------------------------------------------------------
-      # Criterio comun de convergencia (binomial/poisson, con gradTol no
-      # NULL). El codigo de convergencia de glmmTMB deja de decidir: un
-      # ajuste con coeficientes y efectos aleatorios finitos se acepta si
-      # y solo si el criterio de derivadas (RDM, "relative distance to
-      # maximum", g' H^-1 g, la misma definicion que el convG de
-      # lcmm::hlme, que usa gaussiana) es <= gradTol. Se calcula con el
-      # gradiente y la covarianza de los parametros de sdreport(). Si la
-      # covarianza no es calculable (RDM no finito) se rechaza. Se aplica
-      # por igual a los que glmmTMB da por convergidos y a los que no. Con
-      # gradTol = NULL se conserva el criterio anterior (solo conv_ok).
-      # Nunca negbin (riesgo de falso positivo con theta no identificado).
-      # No modifica el numero de iteraciones del optimizador.
-      #
-      # Registro: used_grad_rescue = TRUE si se acepta un ajuste que
-      # glmmTMB marco como no convergido; gate_rejected = TRUE si se rechaza
-      # uno que glmmTMB marco como convergido (conv_ok se deja en TRUE para
-      # distinguirlo de un fallo formal). pdHess y la varianza del efecto
-      # aleatorio ya no rechazan; quedan como informacion (pdHess,
-      # re_singular en model_param).
-      # ------------------------------------------------------------
+      # Common convergence rule (binomial/poisson, when gradTol is not NULL): a fit
+      # with finite coefficients and random effects is accepted if and only if its
+      # RDM = g' H^-1 g (the same definition as the convG of lcmm::hlme) is <= gradTol,
+      # computed from the gradient and covariance of the sdreport() parameters. A
+      # non-finite RDM is rejected. With gradTol = NULL only glmmTMB's convergence
+      # code is used. Never applied to negative binomial. The number of optimizer
+      # iterations is not modified.
+      # used_grad_rescue flags a fit accepted although glmmTMB did not converge;
+      # gate_rejected flags one rejected although glmmTMB did converge.
 
       rdm <- NA_real_
 
@@ -460,9 +447,9 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
 
     if (family == "ordinal") {
 
-      # Mismos criterios que binomial/poisson: valores finitos y, con gradTol no
-      # NULL, RDM = g' H^-1 g <= gradTol (gradiente y Hessiana del ajuste); con
-      # gradTol = NULL solo cuenta la convergencia formal del optimizador.
+      # Same rule as binomial/poisson: finite estimates and, with gradTol not NULL,
+      # RDM = g' H^-1 g <= gradTol; with gradTol = NULL only the optimizer's
+      # convergence code is used.
 
       conv_ok <- isTRUE(model_output$conv == 0)
       beta_ok <- tryCatch(all(is.finite(c(model_output$alpha, model_output$beta))), error = function(e) FALSE)
@@ -577,10 +564,9 @@ var_split_long <- function(X, Y, timeVar = NULL, nsplit_option = "quantile",
         }
       }
 
-      # Covarianza de efectos aleatorios en el borde: alguna desviacion tipica
-      # < 1e-4 o alguna correlacion fuera de la diagonal con |cor| > 0.99
-      # (matriz de rango casi deficiente, el modelo estima menos direcciones
-      # de variacion entre sujetos de las que se le piden). Solo informativo.
+      # Random-effect covariance on the boundary: a standard deviation < 1e-4 or an
+      # off-diagonal |correlation| > 0.99 (the model estimates fewer directions of
+      # between-subject variation than requested). Informative only.
       re_singular <- tryCatch({
         vc <- glmmTMB::VarCorr(model_output)$cond$id
         sds <- attr(vc, "stddev")

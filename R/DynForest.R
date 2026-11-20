@@ -174,7 +174,7 @@ dynforest <- function(timeData = NULL, fixedData = NULL,
                       ncores = NULL,
                       seed = 1234,
                       verbose = TRUE,
-                      gradTol = 0.01){
+                      gradTol = 1e-4){
 
   debut <- Sys.time()
 
